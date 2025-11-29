@@ -36,8 +36,12 @@ def process_convolution_request(payload: dict) -> dict:
         # Gaussian has its own complete CUDA function in filters/gaussian.py
         gaussian_func = filter_info["cuda_function"]
         result_np, timings = gaussian_func(img_np, block_dim, grid_dim, mask_size=mask_size_used)
+    elif filter_used == "box_blur":
+        # Box Blur has its own complete CUDA function in filters/box_blur.py
+        box_blur_func = filter_info["cuda_function"]
+        result_np, timings = box_blur_func(img_np, block_dim, grid_dim, mask_size=mask_size_used)
     else:
-        # Other filters use generic kernel (only box_blur now)
+        # Fallback to generic kernel (should not happen)
         result_np, timings = convolve_gpu_single(
             img_np,
             filter_info["kernel"],

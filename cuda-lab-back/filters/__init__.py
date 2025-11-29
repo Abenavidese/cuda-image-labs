@@ -1,7 +1,7 @@
 # filters/__init__.py
 # Central router for all convolution filters
 
-from .box_blur import box_blur_kernel
+from .box_blur import box_blur_kernel, apply_box_blur_cuda
 from .gaussian import gaussian_kernel, apply_gaussian_cuda
 from .laplacian import laplacian_kernel, apply_laplacian_cuda
 from .prewitt import apply_prewitt_cuda
@@ -37,8 +37,15 @@ def get_filter_kernel(filter_type: str, mask_size: int) -> dict:
     ft = filter_type.lower()
 
     if ft == "box_blur":
-        k = box_blur_kernel(mask_size)
-        return {"type": "box_blur", "kernel": k, "mask_size_used": k.shape[0]}
+        # Box Blur uses separable CUDA implementation
+        if mask_size % 2 == 0:
+            raise ValueError(f"Box Blur mask_size must be odd, got {mask_size}")
+        
+        return {
+            "type": "box_blur",
+            "cuda_function": apply_box_blur_cuda,
+            "mask_size_used": mask_size,
+        }
 
     if ft == "gaussian":
         # Gaussian uses separable CUDA implementation
