@@ -87,7 +87,8 @@ def apply_box_blur_cuda(
     block_dim: Tuple[int, int],
     grid_dim: Tuple[int, int],
     mask_size: int = 3,
-    passes: int = 1
+    passes: int = 1,
+    **kwargs
 ) -> Tuple[np.ndarray, Dict[str, float]]:
     """
     Apply Box Blur filter using separable CUDA convolution.

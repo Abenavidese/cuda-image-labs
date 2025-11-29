@@ -142,7 +142,8 @@ def apply_gaussian_cuda(
     block_dim: Tuple[int, int],
     grid_dim: Tuple[int, int],
     mask_size: int = 3,
-    sigma: float = None
+    sigma: float = None,
+    **kwargs
 ) -> Tuple[np.ndarray, Dict[str, float]]:
     """
     Apply Gaussian filter using separable CUDA convolution.

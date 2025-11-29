@@ -154,7 +154,8 @@ def apply_laplacian_cuda(
     image: np.ndarray,
     block_dim: Tuple[int, int],
     grid_dim: Tuple[int, int],
-    mask_size: int = 3
+    mask_size: int = 3,
+    **kwargs
 ) -> Tuple[np.ndarray, Dict[str, float]]:
     """
     Apply Laplacian or LoG filter using CUDA.
