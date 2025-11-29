@@ -2,7 +2,7 @@
 # Central router for all convolution filters
 
 from .box_blur import box_blur_kernel
-from .gaussian import gaussian_kernel
+from .gaussian import gaussian_kernel, apply_gaussian_cuda
 from .laplacian import laplacian_kernel, apply_laplacian_cuda
 from .prewitt import apply_prewitt_cuda
 
@@ -41,8 +41,15 @@ def get_filter_kernel(filter_type: str, mask_size: int) -> dict:
         return {"type": "box_blur", "kernel": k, "mask_size_used": k.shape[0]}
 
     if ft == "gaussian":
-        k = gaussian_kernel(mask_size)
-        return {"type": "gaussian", "kernel": k, "mask_size_used": k.shape[0]}
+        # Gaussian uses separable CUDA implementation
+        if mask_size % 2 == 0:
+            raise ValueError(f"Gaussian mask_size must be odd, got {mask_size}")
+        
+        return {
+            "type": "gaussian",
+            "cuda_function": apply_gaussian_cuda,
+            "mask_size_used": mask_size,
+        }
 
     if ft == "laplacian":
         # Laplacian supports both 3x3 (classic) and NxN (LoG)
