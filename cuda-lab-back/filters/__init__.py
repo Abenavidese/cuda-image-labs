@@ -1,17 +1,38 @@
 # filters/__init__.py
+# Central router for all convolution filters
 
 from .box_blur import box_blur_kernel
 from .gaussian import gaussian_kernel
 from .laplacian import laplacian_kernel
-from .prewitt import prewitt_kernels
+from .prewitt import apply_prewitt_cuda
 
 
 def get_filter_kernel(filter_type: str, mask_size: int) -> dict:
     """
-    Devuelve la info necesaria para la convolución según el filtro.
-    - Para box_blur y gaussian: un solo kernel.
-    - Para laplacian: un solo kernel 3x3.
-    - Para prewitt: dos kernels (Gx, Gy).
+    Returns the necessary information to apply a convolution filter.
+    
+    This function is the main entry point from convolution_service.py.
+    Selects the appropriate filter and returns the necessary kernels.
+    
+    Args:
+        filter_type: Filter type ("box_blur", "gaussian", "laplacian", "prewitt")
+        mask_size: Desired kernel size (must be odd for most filters)
+    
+    Returns:
+        dict with the following keys:
+            - "type": normalized filter name
+            - "kernel": numpy array for single-kernel filters (box_blur, gaussian, laplacian)
+            - "kernel_x", "kernel_y": numpy arrays for Prewitt (two kernels)
+            - "mask_size_used": actual size used (may differ from requested)
+    
+    Raises:
+        ValueError: If filter_type is not recognized or mask_size is invalid
+    
+    Implemented filters:
+        - box_blur: Simple average (smoothing)
+        - gaussian: Gaussian smoothing (better quality than box_blur)
+        - laplacian: Edge detection (second derivative)
+        - prewitt: Directional edge detection (first derivative, Gx and Gy)
     """
     ft = filter_type.lower()
 
@@ -24,16 +45,20 @@ def get_filter_kernel(filter_type: str, mask_size: int) -> dict:
         return {"type": "gaussian", "kernel": k, "mask_size_used": k.shape[0]}
 
     if ft == "laplacian":
+        # Laplacian always uses 3x3, ignores mask_size
         k = laplacian_kernel()
         return {"type": "laplacian", "kernel": k, "mask_size_used": k.shape[0]}
 
     if ft == "prewitt":
-        gx, gy = prewitt_kernels()
+        # Prewitt uses complete separable CUDA implementation
+        # Validate that mask_size is odd
+        if mask_size % 2 == 0:
+            raise ValueError(f"Prewitt mask_size must be odd, got {mask_size}")
+        
         return {
             "type": "prewitt",
-            "kernel_x": gx,
-            "kernel_y": gy,
-            "mask_size_used": gx.shape[0],
+            "cuda_function": apply_prewitt_cuda,
+            "mask_size_used": mask_size,
         }
 
     raise ValueError(f"Unknown filter type: {filter_type}")
