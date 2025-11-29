@@ -111,8 +111,11 @@ def _ensure_laplacian_compiled():
     if not _laplacian_compiled:
         # Initialize CUDA first (shared context)
         _initialize_cuda()
-        from pycuda.compiler import SourceModule
-        _laplacian_mod = SourceModule(LAPLACIAN_CUDA_SRC)
+        from cuda_kernels import compile_cuda_kernel_to_ptx
+        import pycuda.driver as drv
+        # Compile using nvcc directly to avoid auto-detection issues
+        ptx_code = compile_cuda_kernel_to_ptx(LAPLACIAN_CUDA_SRC, arch="sm_89")
+        _laplacian_mod = drv.module_from_buffer(ptx_code.encode())
         _laplacian_compiled = True
 
 

@@ -6,11 +6,53 @@ Cada filtro especializado (como Prewitt) se implementa en filters/
 
 from typing import Dict, Tuple
 import numpy as np
+import os
+import subprocess
+import tempfile
 
 # Lazy imports de CUDA
 CUDA_AVAILABLE = None
 CUDA_ERROR = None
 _cuda_initialized = False
+
+
+def compile_cuda_kernel_to_ptx(kernel_source, arch="sm_89"):
+    """
+    Compilar kernel CUDA usando nvcc directamente (bypass PyCUDA auto-detection)
+    Args:
+        kernel_source (str): Código fuente del kernel CUDA
+        arch (str): Arquitectura CUDA (sm_89 para RTX 5070 Ti)
+    Returns:
+        str: Código PTX compilado
+    """
+    # Crear archivo temporal para el código CUDA
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.cu', delete=False) as f:
+        f.write(kernel_source)
+        cu_file = f.name
+    
+    # Compilar a PTX usando nvcc
+    ptx_file = cu_file.replace('.cu', '.ptx')
+    cmd = ['nvcc', f'-arch={arch}', '--ptx', cu_file, '-o', ptx_file]
+    
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    
+    if result.returncode != 0:
+        # Limpiar archivo temporal en caso de error
+        try:
+            os.unlink(cu_file)
+        except:
+            pass
+        raise Exception(f"CUDA compilation failed: {result.stderr}")
+    
+    # Leer el PTX generado
+    with open(ptx_file, 'r') as f:
+        ptx_code = f.read()
+    
+    # Limpiar archivos temporales
+    os.unlink(cu_file)
+    os.unlink(ptx_file)
+    
+    return ptx_code
 
 
 # Generic 2D convolution kernel

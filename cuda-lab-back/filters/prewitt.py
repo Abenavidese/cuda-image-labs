@@ -138,8 +138,11 @@ def _ensure_prewitt_compiled():
     if not _prewitt_compiled:
         # Initialize CUDA first (shared context)
         _initialize_cuda()
-        from pycuda.compiler import SourceModule
-        _prewitt_mod = SourceModule(PREWITT_CUDA_SRC)
+        from cuda_kernels import compile_cuda_kernel_to_ptx
+        import pycuda.driver as drv
+        # Compile using nvcc directly to avoid auto-detection issues
+        ptx_code = compile_cuda_kernel_to_ptx(PREWITT_CUDA_SRC, arch="sm_89")
+        _prewitt_mod = drv.module_from_buffer(ptx_code.encode())
         _prewitt_compiled = True
 
 def apply_prewitt_cuda(
