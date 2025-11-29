@@ -28,6 +28,10 @@ def process_convolution_request(payload: dict) -> dict:
         # Prewitt has its own complete CUDA function in filters/prewitt.py
         prewitt_func = filter_info["cuda_function"]
         result_np, timings = prewitt_func(img_np, block_dim, grid_dim, gain=gain, mask_size=mask_size_used)
+    elif filter_used == "laplacian":
+        # Laplacian has its own complete CUDA function in filters/laplacian.py
+        laplacian_func = filter_info["cuda_function"]
+        result_np, timings = laplacian_func(img_np, block_dim, grid_dim, mask_size=mask_size_used)
     else:
         # Other filters use generic kernel
         result_np, timings = convolve_gpu_single(

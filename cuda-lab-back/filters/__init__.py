@@ -3,7 +3,7 @@
 
 from .box_blur import box_blur_kernel
 from .gaussian import gaussian_kernel
-from .laplacian import laplacian_kernel
+from .laplacian import laplacian_kernel, apply_laplacian_cuda
 from .prewitt import apply_prewitt_cuda
 
 
@@ -45,9 +45,15 @@ def get_filter_kernel(filter_type: str, mask_size: int) -> dict:
         return {"type": "gaussian", "kernel": k, "mask_size_used": k.shape[0]}
 
     if ft == "laplacian":
-        # Laplacian always uses 3x3, ignores mask_size
-        k = laplacian_kernel()
-        return {"type": "laplacian", "kernel": k, "mask_size_used": k.shape[0]}
+        # Laplacian supports both 3x3 (classic) and NxN (LoG)
+        if mask_size % 2 == 0:
+            raise ValueError(f"Laplacian mask_size must be odd, got {mask_size}")
+        
+        return {
+            "type": "laplacian",
+            "cuda_function": apply_laplacian_cuda,
+            "mask_size_used": mask_size,
+        }
 
     if ft == "prewitt":
         # Prewitt uses complete separable CUDA implementation
