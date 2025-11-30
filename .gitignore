@@ -1,3 +1,6 @@
 .venv/
 ._DS_Store
 __pycache__/
+frontend/node_modules/
+cuda-image-labs\frontend\node_modules
+frontend/.next/

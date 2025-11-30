@@ -183,7 +183,7 @@ export default function AppPage() {
       })
     } catch (error) {
       console.error("Error de red:", error)
-      alert("No se pudo conectar con el backend. ¿Está corriendo el mock en http://localhost:5000?")
+      alert("No se pudo conectar con el backend. Verifica que esté corriendo en el puerto correcto.")
     } finally {
       setIsProcessing(false)
     }
