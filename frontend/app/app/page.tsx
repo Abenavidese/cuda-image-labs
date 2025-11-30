@@ -22,6 +22,7 @@ import {
   LineChart,
   Line,
 } from "recharts"
+import { ProgressiveVisualization } from "@/components/progressive-visualization"
 
 // filtros que acepta el backend MOCK (valid_filters)
 type FilterType = "prewitt" | "laplacian" | "gaussian" | "box_blur"
@@ -48,6 +49,7 @@ interface RunData {
 export default function AppPage() {
   const [imageBase64, setImageBase64] = useState<string>("")
   const [previewUrl, setPreviewUrl] = useState<string>("")
+  const [imageFile, setImageFile] = useState<File | null>(null)
   const [filterType, setFilterType] = useState<FilterType>("gaussian")
   const [maskSize, setMaskSize] = useState<number>(9)
   const [blockDimX, setBlockDimX] = useState<number>(16)
@@ -70,6 +72,8 @@ export default function AppPage() {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+
+    setImageFile(file) // Store the File object
 
     const reader = new FileReader()
     reader.onloadend = () => {
@@ -575,7 +579,7 @@ export default function AppPage() {
                                   align="right"
                                   wrapperStyle={{ fontSize: 11, paddingBottom: 4 }} // leyenda arriba
                                 />
-                                <Bar dataKey="execution" name="Execution time" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="execution" name="Execution time" fill="#22c55e" radius={[4, 4, 0, 0]} />
                               </BarChart>
                             </ResponsiveContainer>
                           </div>
@@ -617,7 +621,7 @@ export default function AppPage() {
                                   align="right"
                                   wrapperStyle={{ fontSize: 11, paddingBottom: 4 }}
                                 />
-                                <Bar dataKey="kernel" name="Kernel time" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="kernel" name="Kernel time" fill="#10b981" radius={[4, 4, 0, 0]} />
                               </BarChart>
                             </ResponsiveContainer>
                           </div>
@@ -646,6 +650,18 @@ export default function AppPage() {
               </CardContent>
             </Card>
           </div>
+        </div>
+
+        {/* Progressive Visualization Section - Full Width */}
+        <div className="mt-6">
+          <ProgressiveVisualization
+            imageFile={imageFile}
+            filterType={filterType}
+            maskSize={maskSize}
+            gain={8.0}
+            blockDim={[blockDimX, blockDimY]}
+            gridDim={[gridDimX, gridDimY]}
+          />
         </div>
       </main>
     </div>
