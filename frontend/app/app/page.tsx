@@ -757,8 +757,8 @@ export default function AppPage() {
                               Execution vs Kernel Time
                             </h4>
                             <p className="text-xs text-muted-foreground mt-1">
-                              Cada punto corresponde a una ejecución (filtro + tamaño de máscara). Se muestran dos gráficas:
-                              una para el <span className="font-semibold">Execution Time</span> y otra para el{" "}
+                              Each point corresponds to one execution (filter + mask size). Two charts are shown:
+                              one for <span className="font-semibold">Execution Time</span> and another for{" "}
                               <span className="font-semibold">Kernel Time</span>.
                             </p>
                           </div>
