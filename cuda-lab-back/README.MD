@@ -85,9 +85,10 @@ python -c "import uvicorn; uvicorn.run('app:app', host='0.0.0.0', port=8000)"
 
 ```
 cuda-lab-back/
-├── app.py                      # FastAPI application
-├── convolution_service.py      # Main orchestrator
-├── cuda_kernels.py             # Shared CUDA context
+├── app.py                      # FastAPI application (3 endpoints)
+├── convolution_service.py      # Main orchestrator (sync processing)
+├── progressive_convolution.py  # SSE streaming service (progressive)
+├── cuda_kernels.py             # Shared CUDA context + PTX compilation
 ├── image_utils.py              # Image encoding/decoding
 ├── filters/
 │   ├── __init__.py            # Filter router
@@ -105,6 +106,15 @@ cuda-lab-back/
 - ✅ Grid dimensions auto-calculadas
 - ✅ Kernels separables para eficiencia
 - ✅ Manejo de errores robusto
+- ✅ SSE streaming para visualización progresiva
+
+**Módulos Principales:**
+- `app.py` - FastAPI endpoints (POST /convolve, POST /convolve-stream, GET /health)
+- `convolution_service.py` - Orquestación de procesamiento estándar
+- `progressive_convolution.py` - Procesamiento por chunks con SSE streaming
+- `cuda_kernels.py` - Contexto CUDA compartido y compilación PTX
+- `image_utils.py` - Conversión base64 ↔ NumPy ↔ PIL
+- `filters/` - Implementaciones especializadas de cada filtro
 
 ---
 
@@ -126,6 +136,8 @@ cuda-lab-back/
 ### 2. Aplicar Filtro de Convolución
 
 **Endpoint:** `POST /convolve`
+
+**Descripción:** Procesamiento estándar síncrono de imagen con filtro CUDA.
 
 **Request Body:**
 ```json
@@ -158,6 +170,60 @@ cuda-lab-back/
   "grid_dim": [29, 40]
 }
 ```
+
+---
+
+### 3. Visualización Progresiva con SSE
+
+**Endpoint:** `POST /convolve-stream`
+
+**Descripción:** Procesamiento progresivo con **Server-Sent Events (SSE)** que permite visualizar el procesamiento píxel por píxel en tiempo real.
+
+**Request Body:** Idéntico a `/convolve`
+
+**Response:** Stream de eventos SSE
+
+```
+data: {"progress": 5.18, "chunk": 1, "total_chunks": 193, "rows_processed": 32, "total_rows": 6162, "elapsed_ms": 234, "result_image_base64": "data:image/png;base64,...", "filter_used": "gaussian", "mask_size_used": 9}
+
+data: {"progress": 10.36, "chunk": 2, "total_chunks": 193, "rows_processed": 64, "total_rows": 6162, "elapsed_ms": 468, "result_image_base64": "data:image/png;base64,...", "filter_used": "gaussian", "mask_size_used": 9}
+
+...
+
+data: {"progress": 100, "chunk": 193, "total_chunks": 193, "rows_processed": 6162, "total_rows": 6162, "elapsed_ms": 9650, "result_image_base64": "data:image/png;base64,...", "filter_used": "gaussian", "mask_size_used": 9, "completed": true}
+```
+
+**¿Cómo Funciona?**
+
+1. **División en Chunks**: La imagen se divide en franjas horizontales (default: 32 filas por chunk)
+2. **Procesamiento Secuencial**: Cada chunk se procesa con el filtro CUDA completo
+3. **Transmisión Progresiva**: Después de procesar cada chunk, se envía el estado actual de la imagen vía SSE
+4. **Delay Configurable**: Pausa de 50ms entre chunks para hacer la visualización visible
+
+**Parámetros de Configuración** (`progressive_convolution.py`):
+```python
+chunk_size: int = 32  # Número de filas por chunk (ajustable)
+time.sleep(0.05)      # Delay entre chunks: 50ms (ajustable)
+```
+
+**Performance:**
+- **Overhead**: ~50ms por chunk
+- **Ejemplo**: Imagen 512×512 con chunk_size=32 → 16 chunks
+- **Tiempo Total**: Tiempo procesamiento + (chunks × delay)
+  - Procesamiento normal: 100ms
+  - Con streaming: 100ms + (16 × 50ms) = 900ms total
+
+**Casos de Uso:**
+- 📚 **Educativo**: Demostración de filtros de convolución en acción
+- 🐛 **Debugging**: Identificar problemas en kernels CUDA observando artefactos visuales
+- 🎥 **Demo/Presentación**: Efecto visual impactante para audiencias no técnicas
+
+**Notas Importantes:**
+- ✅ Cada chunk SÍ se procesa con el kernel CUDA real
+- ✅ La imagen final es idéntica al endpoint `/convolve` normal
+- ✅ Los tiempos de ejecución reflejan procesamiento real de GPU
+- ⚠️ La división secuencial es artificial (GPU procesa en paralelo)
+- ⚠️ El delay es cosmético (no refleja latencia real de GPU)
 
 ---
 
@@ -465,7 +531,63 @@ Cada filtro gestiona su propia memoria GPU:
 - [ ] Canny edge detection
 - [ ] Bilateral filter
 - [ ] Batch processing (múltiples imágenes)
-- [ ] WebSocket streaming
+- [x] ~~WebSocket streaming~~ (implementado con SSE)
+- [ ] Configuración dinámica de chunk_size y delay para /convolve-stream
+- [ ] Modo "instantáneo" vs "educativo" en visualización progresiva
+- [ ] Métricas de throughput (píxeles/segundo) en SSE
+
+---
+
+## 📚 Documentación Adicional
+
+### Server-Sent Events (SSE) - Arquitectura
+
+```
+Frontend (React)                      Backend (FastAPI)
+     │                                       │
+     │  POST /convolve-stream               │
+     ├──────────────────────────────────────>│
+     │  {image_base64, filter, cuda_config}  │
+     │                                       │
+     │                                  ┌────▼────┐
+     │                                  │ Divide  │
+     │                                  │ imagen  │
+     │                                  │ chunks  │
+     │                                  └────┬────┘
+     │                                       │
+     │  SSE: data: {progress: 5%, ...}  ┌───▼───┐
+     │<─────────────────────────────────┤Process│
+     │                                  │Chunk 1│
+     │                                  └───┬───┘
+     │                                      │
+     │  SSE: data: {progress: 10%, ...} ┌──▼───┐
+     │<─────────────────────────────────┤Process│
+     │                                  │Chunk 2│
+     │                                  └───┬───┘
+     │                                      │
+     │                ...                  ...
+     │                                      │
+     │  SSE: data: {completed: true}    ┌──▼───┐
+     │<─────────────────────────────────┤ Done │
+     │                                  └──────┘
+```
+
+### Por qué SSE en lugar de WebSockets?
+
+| Característica | SSE | WebSockets |
+|---------------|-----|------------|
+| **Dirección** | Unidireccional (servidor → cliente) | Bidireccional |
+| **Protocolo** | HTTP/1.1, HTTP/2 | WS:// (upgrade de HTTP) |
+| **Reconexión** | Automática por el navegador | Manual (requiere lógica) |
+| **Simplicidad** | Fetch API nativa | Requiere biblioteca adicional |
+| **Uso de recursos** | Menor overhead | Mayor overhead |
+| **Caso de uso** | Streaming de progreso, notificaciones | Chat, colaboración en tiempo real |
+
+Para visualización progresiva, **SSE es ideal** porque:
+- ✅ Solo necesitamos servidor → cliente (progreso)
+- ✅ Reconexión automática si hay error de red
+- ✅ Funciona sobre HTTP estándar (no requiere WS upgrade)
+- ✅ Más simple de implementar y debuggear
 
 ---
 

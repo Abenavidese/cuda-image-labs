@@ -23,6 +23,9 @@ export function Navbar() {
           <Link href="/app" className="text-sm font-medium text-foreground/80 transition-colors hover:text-primary">
             App
           </Link>
+          <Link href="/docs" className="text-sm font-medium text-foreground/80 transition-colors hover:text-primary">
+            Docs
+          </Link>
         </div>
       </div>
     </nav>

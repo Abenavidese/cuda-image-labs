@@ -7,9 +7,20 @@ import { Navbar } from "@/components/navbar"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
-import { Loader2, Upload, Download, Sparkles } from "lucide-react"
+import { Loader2, Upload, Download, Sparkles, FileSpreadsheet, RefreshCw } from "lucide-react"
 import {
   ResponsiveContainer,
   BarChart,
@@ -23,6 +34,7 @@ import {
   Line,
 } from "recharts"
 import { ProgressiveVisualization } from "@/components/progressive-visualization"
+import * as XLSX from "xlsx"
 
 // filtros que acepta el backend MOCK (valid_filters)
 type FilterType = "prewitt" | "laplacian" | "gaussian" | "box_blur"
@@ -44,6 +56,10 @@ interface RunData {
   mask_size: number
   execution_time_ms: number
   kernel_time_ms: number
+  block_dim: [number, number]
+  grid_dim: [number, number]
+  image_width: number
+  image_height: number
 }
 
 export default function AppPage() {
@@ -59,6 +75,7 @@ export default function AppPage() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [result, setResult] = useState<ProcessingResult | null>(null)
   const [runHistory, setRunHistory] = useState<RunData[]>([])
+  const [showResetDialog, setShowResetDialog] = useState(false)
 
   // máscara personalizada
   const [useCustomMask, setUseCustomMask] = useState(false)
@@ -176,6 +193,10 @@ export default function AppPage() {
           mask_size: data.mask_size_used,
           execution_time_ms: data.execution_time_ms,
           kernel_time_ms: data.kernel_time_ms,
+          block_dim: data.block_dim,
+          grid_dim: data.grid_dim,
+          image_width: data.image_width || 0,
+          image_height: data.image_height || 0,
         }
 
         const filtered = prev.filter(
@@ -204,6 +225,84 @@ export default function AppPage() {
     link.href = href
     link.download = `processed_${filterType}.png`
     link.click()
+  }
+
+  const handleDownloadExcel = () => {
+    if (runHistory.length === 0) {
+      alert("No hay datos para exportar. Procesa al menos una imagen primero.")
+      return
+    }
+
+    // Baseline: primera ejecución (para calcular Speedup relativo)
+    const baselineTime = runHistory[0].execution_time_ms
+    const baselineThreads = runHistory[0].block_dim[0] * runHistory[0].block_dim[1]
+
+    // Preparar datos para Excel con métricas académicas
+    const excelData = runHistory.map((run, index) => {
+      const threadsPerBlock = run.block_dim[0] * run.block_dim[1]
+      const totalBlocks = run.grid_dim[0] * run.grid_dim[1]
+      
+      // Speedup: S = T_baseline / T_current (aceleramiento relativo)
+      const speedup = baselineTime / run.execution_time_ms
+      
+      // Efficiency: E = Speedup / (threads_current / threads_baseline)
+      // Normalizado: qué tan bien usamos los threads adicionales
+      const threadRatio = threadsPerBlock / baselineThreads
+      const efficiency = threadRatio > 0 ? speedup / threadRatio : 0
+      
+      return {
+        "#": index + 1,
+        "Filter": run.filter,
+        "Mask Size": `${run.mask_size}×${run.mask_size}`,
+        "Image Size": `${run.image_width}×${run.image_height}`,
+        "Block Dim": `${run.block_dim[0]}×${run.block_dim[1]}`,
+        "Grid Dim": `${run.grid_dim[0]}×${run.grid_dim[1]}`,
+        "Threads/Block": threadsPerBlock,
+        "Total Blocks": totalBlocks,
+        "Execution Time (ms)": run.execution_time_ms.toFixed(2),
+        "Kernel Time (ms)": run.kernel_time_ms.toFixed(2),
+        "Speedup (S)": index === 0 ? "1.00 (baseline)" : speedup.toFixed(2),
+        "Efficiency (E)": index === 0 ? "1.00 (baseline)" : efficiency.toFixed(2),
+      }
+    })
+
+    // Crear workbook y worksheet
+    const ws = XLSX.utils.json_to_sheet(excelData)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Processing Results")
+
+    // Ajustar ancho de columnas
+    ws["!cols"] = [
+      { wch: 5 },  // #
+      { wch: 12 }, // Filter
+      { wch: 12 }, // Mask Size
+      { wch: 14 }, // Image Size
+      { wch: 12 }, // Block Dim
+      { wch: 12 }, // Grid Dim
+      { wch: 14 }, // Threads/Block
+      { wch: 12 }, // Total Blocks
+      { wch: 18 }, // Execution Time
+      { wch: 18 }, // Kernel Time
+      { wch: 16 }, // Speedup
+      { wch: 16 }, // Efficiency
+    ]
+
+    // Descargar archivo
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
+    XLSX.writeFile(wb, `cuda-lab-results-${timestamp}.xlsx`)
+  }
+
+  const handleResetCharts = () => {
+    if (runHistory.length === 0) {
+      alert("No hay datos para reiniciar.")
+      return
+    }
+    setShowResetDialog(true)
+  }
+
+  const confirmReset = () => {
+    setRunHistory([])
+    setShowResetDialog(false)
   }
 
   const processedImgSrc =
@@ -274,6 +373,26 @@ export default function AppPage() {
                       </span>
                     </Button>
                   </Label>
+
+                  {!previewUrl && (
+                    <div className="text-center space-y-2">
+                      <p className="text-sm text-foreground">
+                        Nothing to try?
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Download an image and try it out!{" "}
+                        <a 
+                          href="https://pixabay.com/" 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline"
+                        >
+                          Pixabay →
+                        </a>
+                      </p>
+                    </div>
+                  )}
+
                   <input
                     id="image-upload"
                     type="file"
@@ -532,14 +651,70 @@ export default function AppPage() {
                     {/* Performance Charts (barras tipo paper) */}
                     {chartData.length > 0 && (
                       <div className="space-y-4 rounded-lg border border-border bg-muted/10 p-4">
-                        <h4 className="font-mono text-sm font-semibold text-primary">
-                          Execution vs Kernel Time
-                        </h4>
-                        <p className="text-xs text-muted-foreground">
-                          Cada punto corresponde a una ejecución (filtro + tamaño de máscara). Se muestran dos gráficas:
-                          una para el <span className="font-semibold">Execution Time</span> y otra para el{" "}
-                          <span className="font-semibold">Kernel Time</span>.
-                        </p>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h4 className="font-mono text-sm font-semibold text-primary">
+                              Execution vs Kernel Time
+                            </h4>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Cada punto corresponde a una ejecución (filtro + tamaño de máscara). Se muestran dos gráficas:
+                              una para el <span className="font-semibold">Execution Time</span> y otra para el{" "}
+                              <span className="font-semibold">Kernel Time</span>.
+                            </p>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              onClick={handleDownloadExcel}
+                              variant="outline"
+                              size="sm"
+                              className="border-primary/50 hover:bg-primary/10 bg-transparent"
+                            >
+                              <FileSpreadsheet className="h-4 w-4 mr-2" />
+                              Export Excel
+                            </Button>
+                            
+                            <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  onClick={handleResetCharts}
+                                  variant="outline"
+                                  size="sm"
+                                  className="border-red-500/50 hover:bg-red-500/10 bg-transparent text-red-400 hover:text-red-300"
+                                >
+                                  <RefreshCw className="h-4 w-4 mr-2" />
+                                  Reset
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent className="border-border bg-card/95 backdrop-blur-sm">
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle className="flex items-center gap-2 text-foreground">
+                                    <RefreshCw className="h-5 w-5 text-red-400" />
+                                    Reset Performance Data
+                                  </AlertDialogTitle>
+                                  <AlertDialogDescription className="text-muted-foreground">
+                                    Are you sure you want to reset all charts and performance metrics? This action cannot be undone.
+                                    <div className="mt-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                                      <p className="text-xs text-red-400 font-medium">
+                                        ⚠️ All stored results ({runHistory.length} {runHistory.length === 1 ? 'test' : 'tests'}) will be permanently deleted.
+                                      </p>
+                                    </div>
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel className="border-border hover:bg-muted">
+                                    Cancel
+                                  </AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={confirmReset}
+                                    className="bg-red-500 hover:bg-red-600 text-white"
+                                  >
+                                    Reset All Data
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
+                        </div>
 
                         <div className="grid gap-4 md:grid-cols-2">
                           {/* Gráfica 1: Execution Time */}
