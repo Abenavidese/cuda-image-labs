@@ -18,9 +18,16 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
-import { Loader2, Upload, Download, Sparkles, FileSpreadsheet, RefreshCw } from "lucide-react"
+import { Loader2, Upload, Download, Sparkles, FileSpreadsheet, RefreshCw, Cloud, Share2, Copy, Check } from "lucide-react"
 import {
   ResponsiveContainer,
   BarChart,
@@ -76,6 +83,12 @@ export default function AppPage() {
   const [result, setResult] = useState<ProcessingResult | null>(null)
   const [runHistory, setRunHistory] = useState<RunData[]>([])
   const [showResetDialog, setShowResetDialog] = useState(false)
+
+  // cloud storage states
+  const [isUploading, setIsUploading] = useState(false)
+  const [cloudUrl, setCloudUrl] = useState<string>("") 
+  const [showCloudDialog, setShowCloudDialog] = useState(false)
+  const [copiedToClipboard, setCopiedToClipboard] = useState(false)
 
   // máscara personalizada
   const [useCustomMask, setUseCustomMask] = useState(false)
@@ -303,6 +316,93 @@ export default function AppPage() {
   const confirmReset = () => {
     setRunHistory([])
     setShowResetDialog(false)
+  }
+
+  const handleSaveToCloud = async () => {
+    if (!result?.result_image_base64) return
+
+    setIsUploading(true)
+    setCopiedToClipboard(false)
+
+    try {
+      // Extraer base64 puro (sin el prefijo data:image/png;base64,)
+      const base64Data = result.result_image_base64.includes(",")
+        ? result.result_image_base64.split(",")[1]
+        : result.result_image_base64
+
+      // Calcular tamaño aproximado de la imagen en MB
+      // Base64 encoding aumenta el tamaño ~33%, entonces: (base64.length * 0.75) / 1024 / 1024
+      const imageSizeMB = (base64Data.length * 0.75) / (1024 * 1024)
+      
+      // ImgBB tiene límite de 32MB, pero validamos 30MB para estar seguros
+      if (imageSizeMB > 30) {
+        alert(
+          `Image is too large to upload (${imageSizeMB.toFixed(2)}MB).\n\n` +
+          `ImgBB supports images up to 30MB.\n` +
+          `Try processing a smaller image or using a smaller mask size.`
+        )
+        setIsUploading(false)
+        return
+      }
+
+      // Crear FormData para ImgBB
+      const formData = new FormData()
+      formData.append("image", base64Data)
+
+      // Subir a ImgBB
+      const response = await fetch(
+        "https://api.imgbb.com/1/upload?key=3a3efe9146dc39ea8cb30acf9523170e",
+        {
+          method: "POST",
+          body: formData,
+        }
+      )
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null)
+        
+        // Manejar errores específicos de ImgBB
+        if (errorData?.error?.message) {
+          if (errorData.error.message.includes("file size")) {
+            alert(
+              "Image file is too large for ImgBB.\n" +
+              "Maximum size: 32MB\n\n" +
+              "Try processing a smaller image."
+            )
+          } else {
+            alert(`Upload failed: ${errorData.error.message}`)
+          }
+        } else {
+          throw new Error("Failed to upload image")
+        }
+        setIsUploading(false)
+        return
+      }
+
+      const data = await response.json()
+
+      if (data.success) {
+        setCloudUrl(data.data.url)
+        setShowCloudDialog(true)
+      } else {
+        alert("Error uploading image to cloud")
+      }
+    } catch (error) {
+      console.error("Error uploading to cloud:", error)
+      alert("Failed to save image to cloud. Please try again.")
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
+  const handleCopyUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(cloudUrl)
+      setCopiedToClipboard(true)
+      setTimeout(() => setCopiedToClipboard(false), 2000)
+    } catch (error) {
+      console.error("Error copying to clipboard:", error)
+    }
   }
 
   const processedImgSrc =
@@ -813,6 +913,26 @@ export default function AppPage() {
                       <Download className="mr-2 h-4 w-4" />
                       Download Processed Image
                     </Button>
+
+                    {/* Save to Cloud Button */}
+                    <Button
+                      onClick={handleSaveToCloud}
+                      variant="outline"
+                      className="w-full border-blue-500/50 hover:bg-blue-500/10 bg-transparent text-blue-400 hover:text-blue-300"
+                      disabled={isUploading}
+                    >
+                      {isUploading ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Uploading to cloud...
+                        </>
+                      ) : (
+                        <>
+                          <Cloud className="mr-2 h-4 w-4" />
+                          Save Your Results on Cloud
+                        </>
+                      )}
+                    </Button>
                   </div>
                 ) : (
                   <div className="flex min-h-[400px] items-center justify-center text-center">
@@ -839,6 +959,78 @@ export default function AppPage() {
           />
         </div>
       </main>
+
+      {/* Cloud Upload Success Dialog */}
+      <Dialog open={showCloudDialog} onOpenChange={setShowCloudDialog}>
+        <DialogContent className="border-border bg-card/95 backdrop-blur-sm sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-foreground">
+              <Cloud className="h-5 w-5 text-blue-400" />
+              Image Saved to Cloud! 🎉
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              Your processed image is now publicly accessible. Share this URL with anyone!
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            {/* Preview de la imagen */}
+            <div className="relative aspect-video overflow-hidden rounded-lg border border-border bg-muted/20">
+              <img
+                src={cloudUrl}
+                alt="Uploaded result"
+                className="h-full w-full object-contain"
+              />
+            </div>
+
+            {/* URL con botón de copiar */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-foreground">Public URL:</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={cloudUrl}
+                  readOnly
+                  className="flex-1 bg-muted/50 font-mono text-xs"
+                />
+                <Button
+                  onClick={handleCopyUrl}
+                  variant="outline"
+                  size="sm"
+                  className="border-primary/50 hover:bg-primary/10"
+                >
+                  {copiedToClipboard ? (
+                    <>
+                      <Check className="h-4 w-4 mr-1" />
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4 mr-1" />
+                      Copy
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            {/* Info adicional */}
+            <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-3">
+              <p className="text-xs text-blue-400">
+                <Share2 className="inline h-3 w-3 mr-1" />
+                This image is permanently stored and can be accessed from anywhere in the world.
+              </p>
+            </div>
+
+            {/* Botón de cerrar */}
+            <Button
+              onClick={() => setShowCloudDialog(false)}
+              className="w-full bg-primary hover:bg-primary/90"
+            >
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
